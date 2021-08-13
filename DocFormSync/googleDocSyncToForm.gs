@@ -36,16 +36,24 @@ function setFormUrl() {
 function insertQuestion(type, data) {
   // Data will be supplied in form -> doc sync; otherwise empty
   const { question, options, required, lower, upper } = data ? data : {}
-  Logger.log(`Inserting ${type} question: ${question ? question : '(empty)'}`)
+  Logger.log(`Inserting ${type} question into doc: ${question ? question : '(empty)'}`)
 
-  var rowsData = [['Question', question], ['Type', type]];
+  var rowsData = [
+    ['Question', question ? question : ''],
+    ['Type', type]
+  ];
+
   if (type === 'Linear scale') {
     rowsData.push(['Lower bound', lower ? lower : '1: Least label'])
     rowsData.push(['Upper bound', upper ? upper : '5: Most label'])
-  } else if (!['Short answer', 'Long answer'].includes(type)) {
+  }
+
+  else if (!['Short answer', 'Long answer'].includes(type)) {
     rowsData.push(['Options', ''])
   }
+
   rowsData.push(['Required?', required ? 'Yes' : ''])
+
   const table = body.appendTable(rowsData);
 
   // Handle options
@@ -81,8 +89,6 @@ function insertLinearScaleQuestion() {
   insertQuestion('Linear scale')
 }
 
-
-
 // Update the doc
 
 function convertFormItem(item) {
@@ -90,6 +96,7 @@ function convertFormItem(item) {
     case FormApp.ItemType.TEXT:
       item = item.asTextItem();
       return {
+        question: item.getTitle(),
         typeTitle: 'Short answer',
         item,
         required: item.isRequired()
@@ -97,6 +104,7 @@ function convertFormItem(item) {
     case FormApp.ItemType.PARAGRAPH_TEXT:
       item = item.asParagraphTextItem();
       return {
+        question: item.getTitle(),
         typeTitle: 'Long answer',
         item: item,
         required: item.isRequired()
@@ -104,6 +112,7 @@ function convertFormItem(item) {
     case FormApp.ItemType.LIST:
       item = item.asListItem()
       return {
+        question: item.getTitle(),
         typeTitle: 'Dropdown list',
         item,
         options: item.getChoices().map(choice => choice.getValue()),
@@ -112,6 +121,7 @@ function convertFormItem(item) {
     case FormApp.ItemType.MULTIPLE_CHOICE:
       item = item.asMultipleChoiceItem()
       return {
+        question: item.getTitle(),
         typeTitle: 'Multiple choice',
         item,
         options: item.getChoices().map(choice => choice.getValue()),
@@ -120,6 +130,7 @@ function convertFormItem(item) {
     case FormApp.ItemType.CHECKBOX:
       item = item.asCheckboxItem()
       return {
+        question: item.getTitle(),
         typeTitle: 'Checkbox',
         item,
         options: item.getChoices().map(choice => choice.getValue()),
@@ -128,14 +139,13 @@ function convertFormItem(item) {
     case FormApp.ItemType.SCALE:
       item = item.asScaleItem()
       return {
+        question: item.getTitle(),
         typeTitle: 'Linear scale',
         item,
-        lower: `${item.getLowerBound}: ${item.getLeftLabel}`,
-        upper: `${item.getUpperBound}: ${item.getRightLabel}`,
+        lower: `${item.getLowerBound()}: ${item.getLeftLabel()}`,
+        upper: `${item.getUpperBound()}: ${item.getRightLabel()}`,
         required: item.isRequired()
       }
-    default:
-      return { typeTitle: undefined, item: undefined }
   }
 }
 
@@ -147,15 +157,18 @@ function updateDoc() {
   const itemsFromForm = form.getItems()
   const itemsFromDocument = getFormItemsFromDocument();
 
-  itemsFromForm.forEach((formItem) => {
-    const { typeTitle, item, options, required } = convertFormItem(formItem)
-    if (typeTitle) {
-      insertQuestion(typeTitle, { question: item.getTitle(), options, required })
+  // TODO: Update existing questions
+
+  for (let i=0; i < itemsFromForm.length; i++) {
+    const formItem = itemsFromForm[i];
+    const formItemData = convertFormItem(formItem);
+    if (formItemData && formItemData.typeTitle) {
+      insertQuestion(formItemData.typeTitle, formItemData)
     } else if (formItem.getType() === FormApp.ItemType.PAGE_BREAK) {
       const sectionHeaderItem = body.appendParagraph(formItem.getTitle())
       sectionHeaderItem.setHeading(DocumentApp.ParagraphHeading.HEADING3);
     }
-  })
+  }
 }
 
 // Helpers
@@ -275,7 +288,7 @@ function parseDocumentQuestion(table) {
       }
     }
   }
-  questionData.required = ['y', 'yes'].includes(questionData.required.toLowerCase());
+  questionData.required = ['y', 'yes'].includes(questionData?.required.toLowerCase());
   Logger.log(questionData)
   return questionData;
 }
