@@ -139,6 +139,7 @@ function parseTableQuestion(table) {
     }
   }
   questionData.required = ['y', 'yes'].includes(questionData.required.toLowerCase());
+  Logger.log(questionData)
   return questionData;
 }
 
@@ -215,8 +216,7 @@ function updateExistingQuestion(formQuestion, tableQuestion) {
     });
   } else if (tableQuestionData.lower || tableQuestionData.upper) {
     Logger.log(`Processing bounds and labels`)
-    formItem
-      .setBounds(tableQuestionData.lower.bound, tableQuestionData.upper.bound)
+    formItem.setBounds(tableQuestionData.lower.bound, tableQuestionData.upper.bound)
       .setLabels(tableQuestionData.lower.label, tableQuestionData.upper.label)
   }
 
@@ -273,6 +273,8 @@ function addNewQuestion(form, tableQuestion) {
       break;
     case 'Linear scale':
       formItem = form.addScaleItem();
+      formItem.setBounds(tableQuestionData.lower.bound, tableQuestionData.upper.bound)
+        .setLabels(tableQuestionData.lower.label, tableQuestionData.upper.label)
       break;
     default:
       throw 'Invalid question type. Please choose one of: Short answer, Long answer, Dropdown list, Multiple choice, Checkbox, Linear scale'
