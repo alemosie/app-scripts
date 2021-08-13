@@ -68,41 +68,66 @@ function insertLinearScaleQuestion() {
   insertQuestion('Linear scale')
 }
 
+
 // Update the form
 
+function getFormItemsFromDocument() {
+  const formElements = [];
+  let withinQuestionSection = false; // Only slurp tables that are under "Questions" header
+
+  for (let i = 0; i < body.getNumChildren(); i++) {
+    const child = body.getChild(i);
+    const childType = child.getType();
+
+    // Create form sections out of every Heading 3
+    if (
+      childType === DocumentApp.ElementType.PARAGRAPH &&
+      child.getHeading() === DocumentApp.ParagraphHeading.HEADING2 &&
+      child.asParagraph().getText() == 'Questions'
+    ) {
+      withinQuestionSection = true;
+    } else if (childType === DocumentApp.ElementType.PARAGRAPH && child.getHeading() === DocumentApp.ParagraphHeading.HEADING3) {
+      formElements.push(child.asParagraph())
+    } else if (withinQuestionSection && childType === DocumentApp.ElementType.TABLE) {
+      formElements.push(child.asTable())
+    }
+  }
+  return formElements;
+}
+
 function updateForm() {
-  const questionTables = body.getTables().slice(1);
+  const formItemsFromDocument = getFormItemsFromDocument();
 
   if (!formUrl) {
     formUrl = setFormUrl();
   }
   const form = FormApp.openByUrl(formUrl);
-  const existingFormQuestions = form.getItems()
+  const existingFormItems = form.getItems()
 
   // Delete any extra questions
-  if (questionTables.length < existingFormQuestions.length) {
-    const questionsToDelete = existingFormQuestions.slice(questionTables.length)
-    Logger.log(`Deleting ${questionsToDelete.length} questions`)
-    questionsToDelete.forEach((question) => {
+  if (formItemsFromDocument.length < existingFormItems.length) {
+    const itemsToDelete = existingFormItems.slice(formItemsFromDocument.length)
+    Logger.log(`Deleting ${itemsToDelete.length} questions`)
+    itemsToDelete.forEach((question) => {
       form.deleteItem(question)
     });
   }
 
-  for (let i = 0; i < questionTables.length; i++) {
-    const tableQuestion = questionTables[i];
+  for (let i = 0; i < formItemsFromDocument.length; i++) {
+    const documentItem = formItemsFromDocument[i];
 
     // If there's an existing question in that slot, edit it
-    if (i < existingFormQuestions.length) {
-      const formItem = existingFormQuestions[i];
+    if (i < existingFormItems.length) {
+      const formItem = existingFormItems[i];
 
       try {
-        updateExistingQuestion(formItem, tableQuestion);
+        updateExistingItem(formItem, documentItem);
       }
       // If the question has a different type, we have to delete, create new, and move
       catch {
         try {
           Logger.log(`Replacing ${formItem.getTitle()}`);
-          replaceExistingQuestion(i, form, tableQuestion);
+          replaceExistingItem(i, form, documentItem);
         } catch(err) {
           throw err;
         }
@@ -110,16 +135,14 @@ function updateForm() {
 
     // Otherwise, add a new question
     } else {
-      addNewQuestion(form, tableQuestion);
+      addNewItem(form, documentItem);
     }
   }
 }
 
+// Questions helpers
 
-
-// Helpers
-
-function parseTableQuestion(table) {
+function parseDocumentQuestion(table) {
   let questionData = {};
   const numRows = table.getNumRows();
   for (let i = 0; i < table.getNumRows(); i++) {
@@ -168,79 +191,95 @@ function setQuestionChoices({ item, options, allowCustomOther }) {
 }
 
 
-
 // Edit question
 
-function updateExistingQuestion(formQuestion, tableQuestion) {
-  const tableQuestionData = parseTableQuestion(tableQuestion);
-  Logger.log(`Table/form: ${tableQuestionData.question} / ${formQuestion.getTitle()}`,)
+function updateExistingItem(formItem, documentItem) {
+  // For non-tables, create a section (page break)
+  if (documentItem.getType() === DocumentApp.ElementType.PARAGRAPH) {
+    formItem = formItem.asPageBreakItem();
+    formItem.setTitle(documentItem.getText());
+    return formItem;
+  }
 
-  if (formQuestion.getTitle() !== tableQuestionData.question) {
-    Logger.log(`Updating title to ${tableQuestionData.question}`)
-    formItem.setTitle(tableQuestionData.question);
+  // Else, process the table elements as questions
+  const documentQuestionData = parseDocumentQuestion(documentItem);
+  if (!documentQuestionData.question && !documentQuestionData.type) {
+    return;
+  }
+
+  if (formItem.getTitle() !== documentQuestionData.question) {
+    Logger.log(`Updating title to ${documentQuestionData.question}`)
+    formItem.setTitle(documentQuestionData.question);
   }
 
   // Every item is generic by default, so the type must be set
-    switch (tableQuestionData.type) {
+    switch (documentQuestionData.type) {
       case 'Short answer':
-        formItem = formQuestion.asTextItem();
+        formItem = formItem.asTextItem();
         break;
       case 'Long answer':
-        formItem = formQuestion.asParagraphTextItem();
+        formItem = formItem.asParagraphTextItem();
         break;
       case 'Dropdown list':
-        formItem = formQuestion.asListItem();
+        formItem = formItem.asListItem();
         break;
       case 'Multiple choice':
-        formItem = formQuestion.asMultipleChoiceItem();
+        formItem = formItem.asMultipleChoiceItem();
         break;
       case 'Checkbox':
-        formItem = formQuestion.asCheckboxItem();
+        formItem = formItem.asCheckboxItem();
         break;
       case 'Linear scale':
-        formItem = formQuestion.asScaleItem();
+        formItem = formItem.asScaleItem();
         break;
       default:
         throw 'Invalid question type. Please choose one of: Short answer, Long answer, Dropdown list, Multiple choice, Checkbox, Linear scale'
   }
 
   // It's easier to reset the all the choices than see which have changed
-  if (tableQuestionData.options) {
+  if (documentQuestionData.options) {
     Logger.log(`Processing options`)
-    const allowCustomOther = getAllowCustomOther(tableQuestionData.type);
+    const allowCustomOther = getAllowCustomOther(documentQuestionData.type);
     // https://developers.google.com/apps-script/reference/forms/choice?hl=en
     setQuestionChoices({
       item: formItem,
-      options: tableQuestionData.options,
+      options: documentQuestionData.options,
       allowCustomOther
     });
-  } else if (tableQuestionData.lower || tableQuestionData.upper) {
+  } else if (documentQuestionData.lower || documentQuestionData.upper) {
     Logger.log(`Processing bounds and labels`)
-    formItem.setBounds(tableQuestionData.lower.bound, tableQuestionData.upper.bound)
-      .setLabels(tableQuestionData.lower.label, tableQuestionData.upper.label)
+    formItem.setBounds(documentQuestionData.lower.bound, documentQuestionData.upper.bound)
+      .setLabels(documentQuestionData.lower.label, documentQuestionData.upper.label)
   }
 
   Logger.log('Updating isRequired')
-  formItem.setRequired(tableQuestionData.required);
+  formItem.setRequired(documentQuestionData.required);
 
-  Logger.log(`Finished processing ${tableQuestionData.question}`)
+  Logger.log(`Finished processing ${documentQuestionData.question}`)
   return returnItem;
 }
 
 // Add question
 
-function addNewQuestion(form, tableQuestion) {
-  const tableQuestionData = parseTableQuestion(tableQuestion);
-  const allowCustomOther = getAllowCustomOther(tableQuestionData.type);
+function addNewItem(form, documentItem) {
+  // For non-tables, create a section (page break)
+  if (documentItem.getType() === DocumentApp.ElementType.PARAGRAPH) {
+    formItem = form.addPageBreakItem();
+    formItem.setTitle(documentItem.getText());
+    return formItem;
+  }
 
-  if (!tableQuestionData.question && !tableQuestionData.type) {
+  const documentQuestionData = parseDocumentQuestion(documentItem);
+  const allowCustomOther = getAllowCustomOther(documentQuestionData.type);
+
+  if (!documentQuestionData.question && !documentQuestionData.type) {
     return;
   }
 
-  Logger.log(`Adding ${tableQuestionData.question}`)
+  Logger.log(`Adding ${documentQuestionData.question}`)
 
   let formItem = null;
-  switch (tableQuestionData.type) {
+  switch (documentQuestionData.type) {
     case 'Short answer':
       formItem = form.addTextItem();
       break;
@@ -251,7 +290,7 @@ function addNewQuestion(form, tableQuestion) {
       formItem = form.addListItem();
       setQuestionChoices({
         item: formItem,
-        options: tableQuestionData.options,
+        options: documentQuestionData.options,
         allowCustomOther
       });
       break;
@@ -259,7 +298,7 @@ function addNewQuestion(form, tableQuestion) {
       formItem = form.addMultipleChoiceItem();
       setQuestionChoices({
         item: formItem,
-        options: tableQuestionData.options,
+        options: documentQuestionData.options,
         allowCustomOther
       });
       break;
@@ -267,33 +306,33 @@ function addNewQuestion(form, tableQuestion) {
       formItem = form.addCheckboxItem();
       setQuestionChoices({
         item: formItem,
-        options: tableQuestionData.options,
+        options: documentQuestionData.options,
         allowCustomOther
       });
       break;
     case 'Linear scale':
       formItem = form.addScaleItem();
-      formItem.setBounds(tableQuestionData.lower.bound, tableQuestionData.upper.bound)
-        .setLabels(tableQuestionData.lower.label, tableQuestionData.upper.label)
+      formItem.setBounds(documentQuestionData.lower.bound, documentQuestionData.upper.bound)
+        .setLabels(documentQuestionData.lower.label, documentQuestionData.upper.label)
       break;
     default:
       throw 'Invalid question type. Please choose one of: Short answer, Long answer, Dropdown list, Multiple choice, Checkbox, Linear scale'
   }
 
-  formItem.setTitle(tableQuestionData.question);
-  formItem.setRequired(tableQuestionData.required);
+  formItem.setTitle(documentQuestionData.question);
+  formItem.setRequired(documentQuestionData.required);
 
-  Logger.log(`Finished adding ${tableQuestionData.question}`)
+  Logger.log(`Finished adding ${documentQuestionData.question}`)
   return formItem;
 }
 
-function replaceExistingQuestion(index, form, tableQuestion) {
+function replaceExistingItem(index, form, documentItem) {
   form.deleteItem(index);
-  const newQuestion = addNewQuestion(form, tableQuestion);
+  const newItem = addNewItem(form, documentItem);
 
   // Exception: The parameters (FormApp.MultipleChoiceItem,number) don't match the method signature for FormApp.Form.moveItem.
   // We need to access the item before it has been assigned a type to move it to the right place
-  const newQuestionIndex = newQuestion.getIndex()
-  const newQuestionItem = form.getItems()[newQuestionIndex]
-  form.moveItem(newQuestionItem, index);
+  const newItemIndex = newItem.getIndex()
+  const newElementItem = form.getItems()[newItemIndex]
+  form.moveItem(newElementItem, index);
 }
