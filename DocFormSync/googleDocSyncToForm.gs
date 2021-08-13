@@ -79,16 +79,30 @@ function updateForm() {
   const form = FormApp.openByUrl(formUrl);
   const existingFormQuestions = form.getItems()
 
-  if (existingFormQuestions.length > 0) {
-    for (let i = 0; i < existingFormQuestions.length; i++) {
+  for (let i = 0; i < questionTables.length; i++) {
+    const tableQuestion = questionTables[i];
+
+    // If there's an existing question in that slot, edit it
+    if (i < existingFormQuestions.length) {
       const formItem = existingFormQuestions[i];
-      const tableQuestion = questionTables[i];
-      updateExistingQuestion(formItem, tableQuestion);
+
+      try {
+        updateExistingQuestion(formItem, tableQuestion);
+      }
+      // If the question has a different type, we have to delete, create new, and move
+      catch {
+        try {
+          Logger.log(`Replacing ${formItem.getTitle()}`);
+          replaceExistingQuestion(i, form, tableQuestion);
+        } catch(err) {
+          throw err;
+        }
+      }
+
+    // Otherwise, add a new question
+    } else {
+      addNewQuestion(form, tableQuestion);
     }
-  } else {
-    questionTables.forEach((table) => {
-      addNewQuestion(form, table);
-    });
   }
 }
 
@@ -123,8 +137,8 @@ function getAllowCustomOther(type) {
   return ['Multiple choice', 'Checkbox'].includes(type);
 }
 
-function generateFormQuestionOptions({ item, options, allowCustomOther }) {
-  return options.trim().split('\n').reduce((result, option) => {
+function setQuestionChoices({ item, options, allowCustomOther }) {
+  let choices = options.trim().split('\n').reduce((result, option) => {
     if (
       // If "other" is a special option for custom answer, skip adding "other" as an set option to choose
       (option.toLowerCase() === 'other' && !allowCustomOther) ||
@@ -133,8 +147,15 @@ function generateFormQuestionOptions({ item, options, allowCustomOther }) {
     }
     return result;
   }, []);
-}
+  item.setChoices(choices);
 
+  let showOther = allowCustomOther && options.toLowerCase().includes('other');
+  if (allowCustomOther) {
+    item.showOtherOption(showOther);
+  }
+
+  return item;
+}
 
 
 
@@ -144,39 +165,40 @@ function updateExistingQuestion(formQuestion, tableQuestion) {
   const tableQuestionData = parseTableQuestion(tableQuestion);
   Logger.log(`Table/form: ${tableQuestionData.question} / ${formQuestion.getTitle()}`,)
 
-  // Every item is generic by default, so the type must be set
-  switch (tableQuestionData.type) {
-    case 'Short answer':
-      formItem = formQuestion.asTextItem();
-      break;
-    case 'Long answer':
-      formItem = formQuestion.asParagraphTextItem();
-      break;
-    case 'Dropdown list':
-      formItem = formQuestion.asListItem();
-      break;
-    case 'Multiple choice':
-      formItem = formQuestion.asMultipleChoiceItem();
-      break;
-    case 'Checkbox':
-      formItem = formQuestion.asCheckboxItem();
-      break;
-    case 'Linear scale':
-      formItem = formQuestion.asScaleItem();
-      break;
-  }
-
-  // Change title if necessary
-  if (formItem.getTitle() !== tableQuestionData.question) {
-    Logger.log(`Changing title from ${formItem.getTitle()} to ${tableQuestionData.question}`)
-    formItem.setTitle(tableQuestionData.question);
-  }
+    // Every item is generic by default, so the type must be set
+      switch (tableQuestionData.type) {
+        case 'Short answer':
+          formItem = formQuestion.asTextItem();
+          break;
+        case 'Long answer':
+          formItem = formQuestion.asParagraphTextItem();
+          break;
+        case 'Dropdown list':
+          formItem = formQuestion.asListItem();
+          break;
+        case 'Multiple choice':
+          formItem = formQuestion.asMultipleChoiceItem();
+          break;
+        case 'Checkbox':
+          formItem = formQuestion.asCheckboxItem();
+          break;
+        case 'Linear scale':
+          formItem = formQuestion.asScaleItem();
+          break;
+        default:
+          throw 'Invalid question type. Please choose one of: Short answer, Long answer, Dropdown list, Multiple choice, Checkbox, Linear scale'
+    }
 
   // It's easier to reset the all the choices than see which have changed
   if (tableQuestionData.options) {
     Logger.log(`Processing options`)
+    const allowCustomOther = getAllowCustomOther(tableQuestionData.type);
     // https://developers.google.com/apps-script/reference/forms/choice?hl=en
-    setQuestionChoices({ item: formItem, options: tableQuestionData.options, allowCustomOther: getAllowCustomOther() })
+    setQuestionChoices({
+      item: formItem,
+      options: tableQuestionData.options,
+      allowCustomOther
+    });
   } else if (tableQuestionData.lower || tableQuestionData.upper) {
     Logger.log(`Processing bounds and labels`)
     formItem
@@ -187,76 +209,79 @@ function updateExistingQuestion(formQuestion, tableQuestion) {
   Logger.log('Updating isRequired')
   formItem.setRequired(tableQuestionData.required);
 
+  Logger.log(`Updating title to ${tableQuestionData.question}`)
+  returnItem = formItem.setTitle(tableQuestionData.question);
+
   Logger.log(`Finished processing ${tableQuestionData.question}`)
+
+  // Super annoying quirk, where it has to be an "item", not a special item
+  return returnItem;
 }
 
 // Add question
 
-function addNewQuestion(form, table) {
-  const question = table.getCell(0, 1).getText()
-  const type = table.getCell(1, 1).getText()
-  const isRequired = ['y', 'yes'].includes(table.getCell(table.getNumRows() - 1, 1).getText().toLowerCase())
+function addNewQuestion(form, tableQuestion) {
+  const tableQuestionData = parseTableQuestion(tableQuestion);
+  const allowCustomOther = getAllowCustomOther(tableQuestionData.type);
 
-  if (!question && !type) {
+  if (!tableQuestionData.question && !tableQuestionData.type) {
     return;
   }
 
-  let item = null;
+  Logger.log(`Adding ${tableQuestionData.question}`)
 
-  if (type === 'Short answer') {
-    item = form.addTextItem();
-    item.setTitle(question);
-  } else if (type === 'Long answer') {
-    item = form.addParagraphTextItem();
-    item.setTitle(question);
-  } else if (type === 'Dropdown list') {
-    item = form.addListItem();
-    addQuestionWithOptions({ item, table })
-  } else if (type === 'Multiple choice') {
-    item = form.addMultipleChoiceItem();
-    addQuestionWithOptions({ item, table })
-  } else if (type === 'Checkbox') {
-    item = form.addCheckboxItem();
-    addQuestionWithOptions({ item, table })
-  } else if (type === 'Linear scale') {
-    item = form.addScaleItem();
-    const lower = table.getCell(2, 1).getText().split(': ')
-    const upper = table.getCell(3, 1).getText().split(': ')
-    item.setTitle(question)
-      .setBounds(lower[0], upper[0])
-      .setLabels(lower[1], upper[1])
+  let formItem = null;
+  switch (tableQuestionData.type) {
+    case 'Short answer':
+      formItem = form.addTextItem();
+      break;
+    case 'Long answer':
+      formItem = form.addParagraphTextItem();
+      break;
+    case 'Dropdown list':
+      formItem = form.addListItem();
+      setQuestionChoices({
+        item: formItem,
+        options: tableQuestionData.options,
+        allowCustomOther
+      });
+      break;
+    case 'Multiple choice':
+      formItem = form.addMultipleChoiceItem();
+      setQuestionChoices({
+        item: formItem,
+        options: tableQuestionData.options,
+        allowCustomOther
+      });
+      break;
+    case 'Checkbox':
+      formItem = form.addCheckboxItem();
+      setQuestionChoices({
+        item: formItem,
+        options: tableQuestionData.options,
+        allowCustomOther
+      });
+      break;
+    case 'Linear scale':
+      formItem = form.addScaleItem();
+      break;
+    default:
+      throw 'Invalid question type. Please choose one of: Short answer, Long answer, Dropdown list, Multiple choice, Checkbox, Linear scale'
   }
 
-  item.setRequired(isRequired);
+  formItem.setRequired(tableQuestionData.required);
+  returnItem = formItem.setTitle(tableQuestionData.question);
+
+  Logger.log(`Finished adding ${tableQuestionData.question}`)
+  return returnItem;
 }
 
-function setQuestionChoices({ item, options, allowCustomOther }) {
-  let choices = generateFormQuestionOptions({ item, options, allowCustomOther })
-  let showOther = allowCustomOther && options.toLowerCase().includes('other');
+function replaceExistingQuestion(index, form, tableQuestion) {
+  // Exception: The parameters (FormApp.MultipleChoiceItem,number) don't match the method signature for FormApp.Form.moveItem.
 
-  item.setChoices(choices)
-  if (allowCustomOther) {
-    item.showOtherOption(showOther);
-  }
-
-  return item;
-}
-
-function addQuestionWithOptions({ item, table }) {
-  const question = table.getCell(0, 1).getText()
-  const type = table.getCell(1, 1).getText()
-  const options = table.getCell(2, 1).getText()
-  const allowCustomOther = getAllowCustomOther(type);
-
-  let showOther = allowCustomOther && options.toLowerCase().includes('other');
-  let choices = generateFormQuestionOptions({ item, options, allowCustomOther })
-
-  item.setTitle(question).setChoices(choices)
-  if (allowCustomOther) {
-    item.showOtherOption(showOther);
-  }
-}
-
-function createSection(form) {
-  const section = form.addPageBreakItem().setTitle('Page Two');
+  form.deleteItem(index);
+  const newQuestion = addNewQuestion(form, tableQuestion);
+  const newQuestionIndex = newQuestion.getIndex()
+  const newQuestionItem = form.getItems()[newQuestionIndex]
+  form.moveItem(newQuestionItem, index);
 }
