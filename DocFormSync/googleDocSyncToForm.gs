@@ -79,6 +79,15 @@ function updateForm() {
   const form = FormApp.openByUrl(formUrl);
   const existingFormQuestions = form.getItems()
 
+  // Delete any extra questions
+  if (questionTables.length < existingFormQuestions.length) {
+    const questionsToDelete = existingFormQuestions.slice(questionTables.length)
+    Logger.log(`Deleting ${questionsToDelete.length} questions`)
+    questionsToDelete.forEach((question) => {
+      form.deleteItem(question)
+    });
+  }
+
   for (let i = 0; i < questionTables.length; i++) {
     const tableQuestion = questionTables[i];
 
@@ -165,29 +174,34 @@ function updateExistingQuestion(formQuestion, tableQuestion) {
   const tableQuestionData = parseTableQuestion(tableQuestion);
   Logger.log(`Table/form: ${tableQuestionData.question} / ${formQuestion.getTitle()}`,)
 
-    // Every item is generic by default, so the type must be set
-      switch (tableQuestionData.type) {
-        case 'Short answer':
-          formItem = formQuestion.asTextItem();
-          break;
-        case 'Long answer':
-          formItem = formQuestion.asParagraphTextItem();
-          break;
-        case 'Dropdown list':
-          formItem = formQuestion.asListItem();
-          break;
-        case 'Multiple choice':
-          formItem = formQuestion.asMultipleChoiceItem();
-          break;
-        case 'Checkbox':
-          formItem = formQuestion.asCheckboxItem();
-          break;
-        case 'Linear scale':
-          formItem = formQuestion.asScaleItem();
-          break;
-        default:
-          throw 'Invalid question type. Please choose one of: Short answer, Long answer, Dropdown list, Multiple choice, Checkbox, Linear scale'
-    }
+  if (formQuestion.getTitle() !== tableQuestionData.question) {
+    Logger.log(`Updating title to ${tableQuestionData.question}`)
+    formItem.setTitle(tableQuestionData.question);
+  }
+
+  // Every item is generic by default, so the type must be set
+    switch (tableQuestionData.type) {
+      case 'Short answer':
+        formItem = formQuestion.asTextItem();
+        break;
+      case 'Long answer':
+        formItem = formQuestion.asParagraphTextItem();
+        break;
+      case 'Dropdown list':
+        formItem = formQuestion.asListItem();
+        break;
+      case 'Multiple choice':
+        formItem = formQuestion.asMultipleChoiceItem();
+        break;
+      case 'Checkbox':
+        formItem = formQuestion.asCheckboxItem();
+        break;
+      case 'Linear scale':
+        formItem = formQuestion.asScaleItem();
+        break;
+      default:
+        throw 'Invalid question type. Please choose one of: Short answer, Long answer, Dropdown list, Multiple choice, Checkbox, Linear scale'
+  }
 
   // It's easier to reset the all the choices than see which have changed
   if (tableQuestionData.options) {
@@ -209,12 +223,7 @@ function updateExistingQuestion(formQuestion, tableQuestion) {
   Logger.log('Updating isRequired')
   formItem.setRequired(tableQuestionData.required);
 
-  Logger.log(`Updating title to ${tableQuestionData.question}`)
-  returnItem = formItem.setTitle(tableQuestionData.question);
-
   Logger.log(`Finished processing ${tableQuestionData.question}`)
-
-  // Super annoying quirk, where it has to be an "item", not a special item
   return returnItem;
 }
 
@@ -269,18 +278,19 @@ function addNewQuestion(form, tableQuestion) {
       throw 'Invalid question type. Please choose one of: Short answer, Long answer, Dropdown list, Multiple choice, Checkbox, Linear scale'
   }
 
+  formItem.setTitle(tableQuestionData.question);
   formItem.setRequired(tableQuestionData.required);
-  returnItem = formItem.setTitle(tableQuestionData.question);
 
   Logger.log(`Finished adding ${tableQuestionData.question}`)
-  return returnItem;
+  return formItem;
 }
 
 function replaceExistingQuestion(index, form, tableQuestion) {
-  // Exception: The parameters (FormApp.MultipleChoiceItem,number) don't match the method signature for FormApp.Form.moveItem.
-
   form.deleteItem(index);
   const newQuestion = addNewQuestion(form, tableQuestion);
+
+  // Exception: The parameters (FormApp.MultipleChoiceItem,number) don't match the method signature for FormApp.Form.moveItem.
+  // We need to access the item before it has been assigned a type to move it to the right place
   const newQuestionIndex = newQuestion.getIndex()
   const newQuestionItem = form.getItems()[newQuestionIndex]
   form.moveItem(newQuestionItem, index);
