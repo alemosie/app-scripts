@@ -15,7 +15,8 @@ function onOpen(e) {
         .addItem('Linear scale', 'insertLinearScaleQuestion')
         )
     .addSeparator()
-    .addItem('Update form', 'updateForm')
+    .addItem('Update form from document', 'updateForm')
+    .addItem('Update document from form', 'updateDoc')
     .addToUi();
 
     formUrl = setFormUrl();
@@ -32,16 +33,28 @@ function setFormUrl() {
 
 // Question generation
 
-function insertQuestion(type) {
-  var rowsData = [['Question', ''], ['Type', type]];
+function insertQuestion(type, data) {
+  // Data will be supplied in form -> doc sync; otherwise empty
+  const { question, options, required, lower, upper } = data ? data : {}
+  Logger.log(`Inserting ${type} question: ${question ? question : '(empty)'}`)
+
+  var rowsData = [['Question', question], ['Type', type]];
   if (type === 'Linear scale') {
-    rowsData.push(['Lower bound', '1: Least label'])
-    rowsData.push(['Upper bound', '5: Most label'])
+    rowsData.push(['Lower bound', lower ? lower : '1: Least label'])
+    rowsData.push(['Upper bound', upper ? upper : '5: Most label'])
   } else if (!['Short answer', 'Long answer'].includes(type)) {
     rowsData.push(['Options', ''])
   }
-  rowsData.push(['Required?', ''])
+  rowsData.push(['Required?', required ? 'Yes' : ''])
   const table = body.appendTable(rowsData);
+
+  // Handle options
+  if (options) {
+    for (let i=0; i < options.length; i++) {
+      const listItem = table.getCell(2, 1).insertListItem(i, options[i]);
+      listItem.setGlyphType(DocumentApp.GlyphType.BULLET);
+    }
+  }
 
   let style = {};
   style[DocumentApp.Attribute.BOLD] = true;
@@ -67,6 +80,107 @@ function insertCheckboxQuestion() {
 function insertLinearScaleQuestion() {
   insertQuestion('Linear scale')
 }
+
+
+
+// Update the doc
+
+function convertFormItem(item) {
+  switch (item.getType()) {
+    case FormApp.ItemType.TEXT:
+      item = item.asTextItem();
+      return {
+        typeTitle: 'Short answer',
+        item,
+        required: item.isRequired()
+      }
+    case FormApp.ItemType.PARAGRAPH_TEXT:
+      item = item.asParagraphTextItem();
+      return {
+        typeTitle: 'Long answer',
+        item: item,
+        required: item.isRequired()
+      }
+    case FormApp.ItemType.LIST:
+      item = item.asListItem()
+      return {
+        typeTitle: 'Dropdown list',
+        item,
+        options: item.getChoices().map(choice => choice.getValue()),
+        required: item.isRequired()
+      }
+    case FormApp.ItemType.MULTIPLE_CHOICE:
+      item = item.asMultipleChoiceItem()
+      return {
+        typeTitle: 'Multiple choice',
+        item,
+        options: item.getChoices().map(choice => choice.getValue()),
+        required: item.isRequired()
+      }
+    case FormApp.ItemType.CHECKBOX:
+      item = item.asCheckboxItem()
+      return {
+        typeTitle: 'Checkbox',
+        item,
+        options: item.getChoices().map(choice => choice.getValue()),
+        required: item.isRequired()
+      }
+    case FormApp.ItemType.SCALE:
+      item = item.asScaleItem()
+      return {
+        typeTitle: 'Linear scale',
+        item,
+        lower: `${item.getLowerBound}: ${item.getLeftLabel}`,
+        upper: `${item.getUpperBound}: ${item.getRightLabel}`,
+        required: item.isRequired()
+      }
+    default:
+      return { typeTitle: undefined, item: undefined }
+  }
+}
+
+function updateDoc() {
+  if (!formUrl) {
+    formUrl = setFormUrl();
+  }
+  const form = FormApp.openByUrl(formUrl);
+  const itemsFromForm = form.getItems()
+  const itemsFromDocument = getFormItemsFromDocument();
+
+  itemsFromForm.forEach((formItem) => {
+    const { typeTitle, item, options, required } = convertFormItem(formItem)
+    if (typeTitle) {
+      insertQuestion(typeTitle, { question: item.getTitle(), options, required })
+    } else if (formItem.getType() === FormApp.ItemType.PAGE_BREAK) {
+      const sectionHeaderItem = body.appendParagraph(formItem.getTitle())
+      sectionHeaderItem.setHeading(DocumentApp.ParagraphHeading.HEADING3);
+    }
+  })
+}
+
+// Helpers
+
+function createFormItemByType(type) {
+  // Every item is generic by default, so the type must be set
+  switch (type) {
+    case ('Short answer' || FormApp.ItemType.TEXT):
+      return formItem.asTextItem();
+    case ('Long answer' || FormApp.ItemType.PARAGRAPH_TEXT):
+      return formItem.asParagraphTextItem();
+    case ('Dropdown list' || FormApp.ItemType.LIST):
+      return formItem.asListItem();
+    case ('Multiple choice' || FormApp.ItemType.MULTIPLE_CHOICE):
+      return formItem.asMultipleChoiceItem();
+    case ('Checkbox' || FormApp.ItemType.CHECKBOX):
+      return formItem.asCheckboxItem();
+    case ('Linear scale' || FormApp.ItemType.SCALE):
+      return formItem.asScaleItem();
+    default:
+      throw 'Invalid question type. Please choose one of: Short answer, Long answer, Dropdown list, Multiple choice, Checkbox, Linear scale'
+  }
+}
+
+
 
 
 // Update the form
@@ -213,27 +327,27 @@ function updateExistingItem(formItem, documentItem) {
   }
 
   // Every item is generic by default, so the type must be set
-    switch (documentQuestionData.type) {
-      case 'Short answer':
-        formItem = formItem.asTextItem();
-        break;
-      case 'Long answer':
-        formItem = formItem.asParagraphTextItem();
-        break;
-      case 'Dropdown list':
-        formItem = formItem.asListItem();
-        break;
-      case 'Multiple choice':
-        formItem = formItem.asMultipleChoiceItem();
-        break;
-      case 'Checkbox':
-        formItem = formItem.asCheckboxItem();
-        break;
-      case 'Linear scale':
-        formItem = formItem.asScaleItem();
-        break;
-      default:
-        throw 'Invalid question type. Please choose one of: Short answer, Long answer, Dropdown list, Multiple choice, Checkbox, Linear scale'
+  switch (documentQuestionData.type) {
+    case 'Short answer':
+      formItem = formItem.asTextItem();
+      break;
+    case 'Long answer':
+      formItem = formItem.asParagraphTextItem();
+      break;
+    case 'Dropdown list':
+      formItem = formItem.asListItem();
+      break;
+    case 'Multiple choice':
+      formItem = formItem.asMultipleChoiceItem();
+      break;
+    case 'Checkbox':
+      formItem = formItem.asCheckboxItem();
+      break;
+    case 'Linear scale':
+      formItem = formItem.asScaleItem();
+      break;
+    default:
+      throw 'Invalid question type. Please choose one of: Short answer, Long answer, Dropdown list, Multiple choice, Checkbox, Linear scale'
   }
 
   // It's easier to reset the all the choices than see which have changed
