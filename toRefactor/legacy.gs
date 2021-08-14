@@ -13,13 +13,13 @@ function onOpen(e) {
         .addItem('Multiple choice (single-select)', 'insertMultipleChoiceQuestion')
         .addItem('Checkbox (multi-select)', 'insertCheckboxQuestion')
         .addItem('Linear scale', 'insertLinearScaleQuestion')
-        )
+    )
     .addSeparator()
     .addItem('Update form from document', 'updateForm')
     .addItem('Update document from form', 'updateDoc')
     .addToUi();
 
-    formUrl = setFormUrl();
+  formUrl = setFormUrl();
 }
 
 function setFormUrl() {
@@ -58,7 +58,7 @@ function insertQuestion(type, data) {
 
   // Handle options
   if (options) {
-    for (let i=0; i < options.length; i++) {
+    for (let i = 0; i < options.length; i++) {
       const listItem = table.getCell(2, 1).insertListItem(i, options[i]);
       listItem.setGlyphType(DocumentApp.GlyphType.BULLET);
     }
@@ -159,7 +159,7 @@ function updateDoc() {
 
   // TODO: Update existing questions
 
-  for (let i=0; i < itemsFromForm.length; i++) {
+  for (let i = 0; i < itemsFromForm.length; i++) {
     const formItem = itemsFromForm[i];
     const formItemData = convertFormItem(formItem);
     if (formItemData && formItemData.typeTitle) {
@@ -255,12 +255,12 @@ function updateForm() {
         try {
           Logger.log(`Replacing ${formItem.getTitle()}`);
           replaceExistingItem(i, form, documentItem);
-        } catch(err) {
+        } catch (err) {
           throw err;
         }
       }
 
-    // Otherwise, add a new question
+      // Otherwise, add a new question
     } else {
       addNewItem(form, documentItem);
     }
