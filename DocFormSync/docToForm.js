@@ -1,4 +1,4 @@
-// STEP 1: FIND ALL ELEMENTS IN DOCUMENT TO SYNC TO DOC
+// STEP 1: FIND ALL ELEMENTS IN DOCUMENT TO SYNC TO FORM
 
 const getItemsToSyncFromDoc = () => {
   let itemsToSync = [];
@@ -197,8 +197,10 @@ const replaceExistingFormItem = (index, form, documentItem) => {
   form.deleteItem(index);
   const newItem = addNewFormItem(form, documentItem);
 
-  // Exception: The parameters (FormApp.MultipleChoiceItem,number) don't match the method signature for FormApp.Form.moveItem.
-  // We need to access the item before it has been assigned a type to move it to the right place
+  // Exception: The parameters (FormApp.MultipleChoiceItem,number) don't match the method 
+  // signature for FormApp.Form.moveItem.
+  // We need to access the item before it has been assigned a specific item type 
+  // to move it to the right place with moveItem()
   const newItemIndex = newItem.getIndex()
   const newElementItem = form.getItems()[newItemIndex]
   form.moveItem(newElementItem, index);
@@ -206,7 +208,8 @@ const replaceExistingFormItem = (index, form, documentItem) => {
 
 
 
-// Update the form
+// RUNNER: UPDATE THE FORM
+// This is the code that is run when someone selects "Docs -> Form" in the UI menu
 
 const syncDocToForm = () => {
   Logger.log(`Running: doc -> form`)
