@@ -216,7 +216,8 @@ const syncDocToForm = () => {
   const formItemsFromDoc = getItemsToSyncFromDoc();
 
   if (!form) {
-    form = getForm();
+    const formDataTable = getFormDataTable();
+    form = getForm(formDataTable);
   }
   const existingFormItems = form.getItems()
 
